@@ -20,16 +20,16 @@ INITIAL_CHIPS = 1000
 DAILY_CHIPS = 200
 
 SHOP_ITEMS = {
-    '傳奇至尊寶': {'price': 500000, 'emoji': '🌟', 'desc': '傳說中的至高存在，萬年一遇'},
-    '賭神':       {'price': 100000, 'emoji': '👑', 'desc': '至高無上的傳奇稱號'},
-    '賭聖':       {'price': 40000,  'emoji': '🔱', 'desc': '萬中選一的賭場聖者'},
-    '賭王':       {'price': 30000,  'emoji': '💠', 'desc': '稱霸賭場的王者'},
-    '賭鬼':       {'price': 20000,  'emoji': '👹', 'desc': '為賭而生的瘋狂存在'},
-    '幸運星':     {'price': 5000,   'emoji': '⭐', 'desc': '天生好運的象徵'},
-    '賭場常客':   {'price': 2000,   'emoji': '🎰', 'desc': '常駐賭場的老鳥稱號'},
-    '破產王':     {'price': 500,    'emoji': '💸', 'desc': '輸光過的勇者稱號'},
-    '小賭怡情':   {'price': 1000,   'emoji': '🎲', 'desc': '小賭一下，開心就好'},
-    '小可愛':     {'price': 200,    'emoji': '🍬', 'desc': '超級可愛的入門稱號'},
+    '傳奇至尊寶': {'price': 500000, 'emoji': '🌟', 'desc': '傳說中的至高存在，萬年一遇', 'color': 0xFF0000},
+    '賭神':       {'price': 100000, 'emoji': '👑', 'desc': '至高無上的傳奇稱號',         'color': 0xFF4500},
+    '賭聖':       {'price': 40000,  'emoji': '🔱', 'desc': '萬中選一的賭場聖者',         'color': 0x9932CC},
+    '賭王':       {'price': 30000,  'emoji': '💠', 'desc': '稱霸賭場的王者',             'color': 0x4169E1},
+    '賭鬼':       {'price': 20000,  'emoji': '👹', 'desc': '為賭而生的瘋狂存在',         'color': 0xDC143C},
+    '幸運星':     {'price': 5000,   'emoji': '⭐', 'desc': '天生好運的象徵',             'color': 0xFFD700},
+    '賭場常客':   {'price': 2000,   'emoji': '🎰', 'desc': '常駐賭場的老鳥稱號',         'color': 0xFFA500},
+    '小賭怡情':   {'price': 1000,   'emoji': '🎲', 'desc': '小賭一下，開心就好',         'color': 0x00BFFF},
+    '破產王':     {'price': 500,    'emoji': '💸', 'desc': '輸光過的勇者稱號',           'color': 0x808080},
+    '小可愛':     {'price': 200,    'emoji': '🍬', 'desc': '超級可愛的入門稱號',         'color': 0xFF69B4},
 }
 
 
@@ -77,6 +77,33 @@ def niu_name(n):
     if n == -1: return '沒牛'
     if n == 10: return '牛牛'
     return f'牛{n}'
+
+async def get_or_create_title_role(guild: discord.Guild, name: str) -> discord.Role | None:
+    role = discord.utils.get(guild.roles, name=name)
+    if not role:
+        data = SHOP_ITEMS.get(name, {})
+        try:
+            role = await guild.create_role(
+                name=name,
+                color=discord.Color(data.get('color', 0x99AAB5)),
+                hoist=True,
+                reason='射龍門 Bot 自動建立稱號身分組'
+            )
+        except discord.Forbidden:
+            return None
+    return role
+
+async def update_title_role(member: discord.Member, new_title: str):
+    title_roles = [r for r in member.roles if r.name in SHOP_ITEMS]
+    try:
+        if title_roles:
+            await member.remove_roles(*title_roles, reason='切換稱號')
+        if new_title:
+            role = await get_or_create_title_role(member.guild, new_title)
+            if role:
+                await member.add_roles(role, reason=f'裝備稱號：{new_title}')
+    except discord.Forbidden:
+        pass
 
 def detect_niu_special(cards):
     """Returns ('鐵支',8) / ('同花順',5) / None"""
@@ -397,13 +424,10 @@ class ShopView(discord.ui.View):
             await add_chips(str(self.user_id), -data['price'])
             await add_owned_item(str(self.user_id), name)
             await set_title(str(self.user_id), name)
-            base = interaction.user.display_name
-            if '【' in base:
-                base = base[:base.index('【')].strip()
-            try:
-                await interaction.user.edit(nick=f'{base} 【{name}】')
-            except discord.Forbidden:
-                pass
+            if interaction.guild:
+                member = interaction.guild.get_member(self.user_id)
+                if member:
+                    await update_title_role(member, name)
             for item in self.children:
                 item.disabled = True
             embed = discord.Embed(
@@ -795,16 +819,13 @@ async def cmd_equip(interaction: discord.Interaction):
             chosen = self_s.values[0]
             await set_title(uid, chosen)
             data = SHOP_ITEMS.get(chosen, {})
-            base = inter.user.display_name
-            if '【' in base:
-                base = base[:base.index('【')].strip()
-            try:
-                await inter.user.edit(nick=f'{base} 【{chosen}】')
-            except discord.Forbidden:
-                pass
+            if inter.guild:
+                member = inter.guild.get_member(inter.user.id)
+                if member:
+                    await update_title_role(member, chosen)
             for item in self_s.view.children:
                 item.disabled = True
-            await inter.response.edit_message(content=f"✅ 已裝備 {data.get('emoji','')} **{chosen}**！", view=self_s.view)
+            await inter.response.edit_message(content=f"✅ 已裝備 {data.get('emoji','')} **{chosen}**！身分組已更新。", view=self_s.view)
 
     view = discord.ui.View(timeout=60)
     view.add_item(EquipSelect())
@@ -886,6 +907,10 @@ async def cmd_admin_give(interaction: discord.Interaction, 目標: discord.User,
             return
         await add_owned_item(uid, 稱號)
         await set_title(uid, 稱號)
+        if interaction.guild:
+            member = interaction.guild.get_member(目標.id)
+            if member:
+                await update_title_role(member, 稱號)
         msgs.append(f'已給予稱號 **{稱號}**')
     if 籌碼 > 0:
         await add_chips(uid, 籌碼)
