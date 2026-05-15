@@ -78,6 +78,24 @@ def niu_name(n):
     if n == 10: return '牛牛'
     return f'牛{n}'
 
+def detect_niu_special(cards):
+    """Returns ('鐵支',8) / ('同花順',5) / None"""
+    ranks = [c[1] for c in cards]
+    suits = [c[0] for c in cards]
+    vals = sorted(VALUES[r] for r in ranks)
+    counts = {}
+    for r in ranks:
+        counts[r] = counts.get(r, 0) + 1
+    if max(counts.values()) >= 4:
+        return ('鐵支', 8)
+    same_suit = len(set(suits)) == 1
+    is_seq = all(vals[i+1] - vals[i] == 1 for i in range(4))
+    if not is_seq and vals == [1, 10, 11, 12, 13]:
+        is_seq = True
+    if same_suit and is_seq:
+        return ('同花順', 5)
+    return None
+
 def spin_slots():
     return random.choices(SLOTS, weights=SLOT_WEIGHTS, k=3)
 
@@ -396,7 +414,7 @@ class ShopView(discord.ui.View):
             await interaction.response.edit_message(embed=embed, view=self)
         return callback
 
-class BlackjackView(discord.ui.View):
+class BlackjackPlayView(discord.ui.View):
     def __init__(self, user_id: int, bet: int, chips: int, player: list, dealer: list):
         super().__init__(timeout=60)
         self.user_id = user_id
@@ -406,38 +424,23 @@ class BlackjackView(discord.ui.View):
         self.dealer = dealer
         self.done = False
 
-    def _embed(self, reveal=False):
+    def make_embed(self):
         pv = bj_total(self.player)
         embed = discord.Embed(title='🃏 21點', color=discord.Color.dark_green())
-        embed.add_field(
-            name='你的牌',
-            value=' '.join(f'`{card_str(c)}`' for c in self.player) + f'  **({pv})**',
-            inline=False
-        )
-        if reveal:
-            dv = bj_total(self.dealer)
-            embed.add_field(
-                name='莊家的牌',
-                value=' '.join(f'`{card_str(c)}`' for c in self.dealer) + f'  **({dv})**',
-                inline=False
-            )
-        else:
-            embed.add_field(
-                name='莊家的牌',
-                value=f'`{card_str(self.dealer[0])}`  `  ?  `',
-                inline=False
-            )
+        embed.add_field(name=f'你的牌 ({pv})', value=' '.join(f'`{card_str(c)}`' for c in self.player), inline=False)
+        embed.add_field(name='莊家的牌', value=f'`{card_str(self.dealer[0])}`  `  ?  `', inline=False)
+        embed.add_field(name='押注', value=f'**{self.bet:,}** 籌碼', inline=True)
         return embed
 
-    async def _finish(self, interaction: discord.Interaction, bust=False):
+    async def finish(self, interaction: discord.Interaction, bust=False):
         self.done = True
         for item in self.children:
             item.disabled = True
         pv = bj_total(self.player)
-        while bj_total(self.dealer) < 17:
+        while bj_total(self.dealer) < 18:
             self.dealer.append(draw_card())
         dv = bj_total(self.dealer)
-        if bust or (not (dv > 21) and pv < dv):
+        if bust or (dv <= 21 and pv < dv):
             delta = -self.bet
             result = f'❌ {"爆牌！" if bust else "莊家贏！"}輸了 **{self.bet:,}** 籌碼'
             color = discord.Color.red()
@@ -468,10 +471,12 @@ class BlackjackView(discord.ui.View):
             return
         self.player.append(draw_card())
         pv = bj_total(self.player)
-        if pv >= 21:
-            await self._finish(interaction, bust=(pv > 21))
+        if pv > 21:
+            await self.finish(interaction, bust=True)
+        elif pv == 21:
+            await self.finish(interaction)
         else:
-            await interaction.response.edit_message(embed=self._embed(), view=self)
+            await interaction.response.edit_message(embed=self.make_embed(), view=self)
 
     @discord.ui.button(label='停牌 Stand', style=discord.ButtonStyle.secondary)
     async def stand(self, interaction: discord.Interaction, button):
@@ -480,52 +485,109 @@ class BlackjackView(discord.ui.View):
             return
         if self.done:
             return
-        await self._finish(interaction)
+        await self.finish(interaction)
+
+
+class BlackjackBetView(discord.ui.View):
+    def __init__(self, user_id: int, chips: int, player: list, dealer: list):
+        super().__init__(timeout=60)
+        self.user_id = user_id
+        self.chips = chips
+        self.player = player
+        self.dealer = dealer
+        self.done = False
+        for label, amt in [('押 50',50),('押 100',100),('押 200',200),('押 300',300),('押 400',400)]:
+            btn = discord.ui.Button(label=label, style=discord.ButtonStyle.primary, disabled=chips < amt)
+            btn.callback = self._make_bet(min(amt, chips))
+            self.add_item(btn)
+        allin = discord.ui.Button(label='🔥 ALL IN', style=discord.ButtonStyle.danger)
+        allin.callback = self._make_bet(chips)
+        self.add_item(allin)
+
+    def _make_bet(self, amount):
+        async def callback(interaction: discord.Interaction):
+            if interaction.user.id != self.user_id:
+                await interaction.response.send_message('這不是你的牌局！', ephemeral=True)
+                return
+            if self.done:
+                return
+            self.done = True
+            for item in self.children:
+                item.disabled = True
+            play = BlackjackPlayView(self.user_id, amount, self.chips, self.player, self.dealer)
+            await interaction.response.edit_message(embed=play.make_embed(), view=play)
+        return callback
 
 
 class NiuView(discord.ui.View):
-    def __init__(self, user_id: int, bet: int, chips: int, player: list):
+    def __init__(self, user_id: int, chips: int, player: list):
         super().__init__(timeout=60)
         self.user_id = user_id
-        self.bet = bet
         self.chips = chips
         self.player = player
         self.done = False
+        for label, amt in [('押 50',50),('押 100',100),('押 200',200),('押 300',300),('押 400',400)]:
+            btn = discord.ui.Button(label=label, style=discord.ButtonStyle.primary, disabled=chips < amt)
+            btn.callback = self._make_bet(min(amt, chips))
+            self.add_item(btn)
+        allin = discord.ui.Button(label='🔥 ALL IN', style=discord.ButtonStyle.danger)
+        allin.callback = self._make_bet(chips)
+        self.add_item(allin)
 
-    @discord.ui.button(label='開牌！', style=discord.ButtonStyle.danger)
-    async def open_cards(self, interaction: discord.Interaction, button):
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message('這不是你的牌局！', ephemeral=True)
-            return
-        if self.done:
-            return
-        self.done = True
-        button.disabled = True
-        dealer = [draw_card() for _ in range(5)]
-        p_niu = calc_niu(self.player)
-        d_niu = calc_niu(dealer)
-        if p_niu > d_niu:
-            if p_niu == 10:   delta = self.bet * 2
-            elif p_niu >= 7:  delta = int(self.bet * 1.5)
-            else:             delta = self.bet
-            result = f'✅ **{niu_name(p_niu)}**！贏了 **{delta:,}** 籌碼！'
-            color = discord.Color.green()
-        elif p_niu == d_niu:
-            delta = 0
-            result = '🤝 平局！'
-            color = discord.Color.blue()
-        else:
-            delta = -self.bet
-            result = f'❌ 輸給莊家 **{niu_name(d_niu)}**！輸了 **{self.bet:,}** 籌碼'
-            color = discord.Color.red()
-        await add_chips(str(self.user_id), delta)
-        final = self.chips + delta
-        embed = discord.Embed(title='🀄 妞妞 — 結果', color=color)
-        embed.add_field(name=f'你的牌 — {niu_name(p_niu)}', value=' '.join(f'`{card_str(c)}`' for c in self.player), inline=False)
-        embed.add_field(name=f'莊家的牌 — {niu_name(d_niu)}', value=' '.join(f'`{card_str(c)}`' for c in dealer), inline=False)
-        embed.add_field(name='結果', value=result, inline=False)
-        embed.add_field(name='剩餘籌碼', value=f'**{final:,}** 點', inline=False)
-        await interaction.response.edit_message(embed=embed, view=self)
+    def _make_bet(self, amount):
+        async def callback(interaction: discord.Interaction):
+            if interaction.user.id != self.user_id:
+                await interaction.response.send_message('這不是你的牌局！', ephemeral=True)
+                return
+            if self.done:
+                return
+            self.done = True
+            for item in self.children:
+                item.disabled = True
+            dealer = [draw_card() for _ in range(5)]
+            p_sp = detect_niu_special(self.player)
+            d_sp = detect_niu_special(dealer)
+            p_niu = calc_niu(self.player)
+            d_niu = calc_niu(dealer)
+
+            def hand_rank(sp, niu):
+                if sp and sp[0] == '鐵支':   return 20
+                if sp and sp[0] == '同花順': return 15
+                return niu
+
+            p_rank = hand_rank(p_sp, p_niu)
+            d_rank = hand_rank(d_sp, d_niu)
+
+            if p_rank > d_rank:
+                if p_sp:               mult = p_sp[1]
+                elif p_niu in (8, 9):  mult = 2
+                elif p_niu == 10:      mult = 3
+                else:                  mult = 1
+                delta = amount * mult
+                p_label = f"🎴 {p_sp[0]}" if p_sp else niu_name(p_niu)
+                result = f'✅ **{p_label}**！贏了 **{delta:,}** 籌碼！'
+                color = discord.Color.green()
+            elif p_rank == d_rank:
+                delta = 0
+                result = '🤝 平局！'
+                color = discord.Color.blue()
+            else:
+                delta = -amount
+                d_label = f"🎴 {d_sp[0]}" if d_sp else niu_name(d_niu)
+                result = f'❌ 輸給莊家 **{d_label}**！輸了 **{amount:,}** 籌碼'
+                color = discord.Color.red()
+
+            await add_chips(str(self.user_id), delta)
+            final = self.chips + delta
+            p_label = f"🎴 {p_sp[0]}" if p_sp else niu_name(p_niu)
+            d_label = f"🎴 {d_sp[0]}" if d_sp else niu_name(d_niu)
+            embed = discord.Embed(title='🀄 妞妞 — 結果', color=color)
+            embed.add_field(name=f'你的牌 — {p_label}', value=' '.join(f'`{card_str(c)}`' for c in self.player), inline=False)
+            embed.add_field(name=f'莊家的牌 — {d_label}', value=' '.join(f'`{card_str(c)}`' for c in dealer), inline=False)
+            embed.add_field(name='結果', value=result, inline=False)
+            embed.add_field(name='剩餘籌碼', value=f'**{final:,}** 點', inline=False)
+            await interaction.response.edit_message(embed=embed, view=self)
+        return callback
 
 
 # ── Commands ───────────────────────────────────────────────────────────────────
@@ -611,49 +673,39 @@ async def cmd_slot(interaction: discord.Interaction, 下注: int):
 
 
 @tree.command(name='21點', description='21點！越接近 21 不爆牌就贏，Blackjack 賠 1.5 倍')
-@app_commands.describe(下注='押注的籌碼數量')
-async def cmd_blackjack(interaction: discord.Interaction, 下注: int):
+async def cmd_blackjack(interaction: discord.Interaction):
     uid = interaction.user.id
-    if 下注 <= 0:
-        await interaction.response.send_message('下注金額必須大於 0！', ephemeral=True)
-        return
     chips = await get_chips(str(uid))
     if chips <= 0:
         await interaction.response.send_message('籌碼歸零！先用 `/簽到` 補充籌碼。', ephemeral=True)
         return
-    bet = min(下注, chips)
     player = [draw_card(), draw_card()]
     dealer = [draw_card(), draw_card()]
-    view = BlackjackView(uid, bet, chips, player, dealer)
-    embed = view._embed()
-    embed.add_field(name='押注', value=f'**{bet:,}** 籌碼', inline=True)
+    pv = bj_total(player)
+    embed = discord.Embed(title='🃏 21點', color=discord.Color.dark_green())
+    embed.add_field(name=f'你的牌 ({pv})', value=' '.join(f'`{card_str(c)}`' for c in player), inline=False)
+    embed.add_field(name='莊家的牌', value=f'`{card_str(dealer[0])}`  `  ?  `', inline=False)
     embed.add_field(name='你的籌碼', value=f'**{chips:,}** 點', inline=True)
-    embed.set_footer(text='Blackjack（兩張牌21點）賠 1.5 倍 ｜ 莊家 17 點停牌')
-    await interaction.response.send_message(embed=embed, view=view)
+    embed.set_footer(text='Blackjack（兩張牌21點）賠 1.5 倍 ｜ 莊家 18 點停牌')
+    await interaction.response.send_message(embed=embed, view=BlackjackBetView(uid, chips, player, dealer))
 
 
-@tree.command(name='妞妞', description='妞妞！五張牌湊牛，牛牛賠 2 倍！')
-@app_commands.describe(下注='押注的籌碼數量')
-async def cmd_niu(interaction: discord.Interaction, 下注: int):
+@tree.command(name='妞妞', description='妞妞！五張牌湊牛，牛牛 ×3 倍，鐵支 ×8 倍，同花順 ×5 倍！')
+async def cmd_niu(interaction: discord.Interaction):
     uid = interaction.user.id
-    if 下注 <= 0:
-        await interaction.response.send_message('下注金額必須大於 0！', ephemeral=True)
-        return
     chips = await get_chips(str(uid))
     if chips <= 0:
         await interaction.response.send_message('籌碼歸零！先用 `/簽到` 補充籌碼。', ephemeral=True)
         return
-    bet = min(下注, chips)
     player = [draw_card() for _ in range(5)]
     embed = discord.Embed(
         title='🀄 妞妞',
-        description='你的五張牌出來了！按「開牌」和莊家比大小！\n牛牛賠 2 倍，牛7～牛9 賠 1.5 倍，牛1～牛6 賠 1 倍',
+        description='你的五張牌出來了！選擇押注金額和莊家一決勝負！\n牛8/牛9 ×2 ｜ 牛牛 ×3 ｜ 同花順 ×5 ｜ 鐵支 ×8',
         color=discord.Color.dark_gold()
     )
     embed.add_field(name='你的牌', value=' '.join(f'`{card_str(c)}`' for c in player), inline=False)
-    embed.add_field(name='押注', value=f'**{bet:,}** 籌碼', inline=True)
     embed.add_field(name='你的籌碼', value=f'**{chips:,}** 點', inline=True)
-    await interaction.response.send_message(embed=embed, view=NiuView(uid, bet, chips, player))
+    await interaction.response.send_message(embed=embed, view=NiuView(uid, chips, player))
 
 
 @tree.command(name='轉帳', description='轉帳籌碼給其他玩家')
@@ -790,6 +842,32 @@ async def cmd_rank(interaction: discord.Interaction):
         lines.append(f'{medal} {name}{title_str} — **{chips:,}** 點')
     embed = discord.Embed(title='🏆 籌碼排行榜', description='\n'.join(lines), color=discord.Color.gold())
     await interaction.response.send_message(embed=embed)
+
+
+OWNER_ID = '843724534117040168'
+
+@tree.command(name='管理員給予', description='（管理員限定）給予指定玩家物品或籌碼')
+@app_commands.describe(目標='目標玩家', 稱號='要給予的稱號名稱（留空則不給）', 籌碼='要給予的籌碼數量（留空則不給）')
+async def cmd_admin_give(interaction: discord.Interaction, 目標: discord.User, 稱號: str = None, 籌碼: int = 0):
+    if str(interaction.user.id) != OWNER_ID:
+        await interaction.response.send_message('你沒有權限使用此指令！', ephemeral=True)
+        return
+    uid = str(目標.id)
+    msgs = []
+    if 稱號:
+        if 稱號 not in SHOP_ITEMS:
+            await interaction.response.send_message(f'「{稱號}」不在商店清單中！', ephemeral=True)
+            return
+        await add_owned_item(uid, 稱號)
+        await set_title(uid, 稱號)
+        msgs.append(f'已給予稱號 **{稱號}**')
+    if 籌碼 > 0:
+        await add_chips(uid, 籌碼)
+        msgs.append(f'已給予 **{籌碼:,}** 籌碼')
+    if not msgs:
+        await interaction.response.send_message('請至少填寫稱號或籌碼！', ephemeral=True)
+        return
+    await interaction.response.send_message(f'✅ {目標.display_name}：{" ／ ".join(msgs)}', ephemeral=True)
 
 
 # ── Boot ───────────────────────────────────────────────────────────────────────
