@@ -25,12 +25,6 @@ SHOP_ITEMS = {
     '破產王':   {'price': 500,   'emoji': '💸', 'desc': '輸光過的勇者稱號'},
 }
 
-ROLE_MILESTONES = [
-    (10000, '賭神'),
-    (5000,  '賭神弟子'),
-    (2000,  '賭場常客'),
-    (500,   '新手賭徒'),
-]
 
 SLOTS = ['🍒', '🍋', '🍊', '🍇', '💎', '7️⃣']
 SLOT_WEIGHTS = [40, 30, 20, 15, 10, 5]
@@ -528,36 +522,6 @@ async def cmd_equip(interaction: discord.Interaction, 稱號: str):
         pass
     await interaction.response.send_message(f"已裝備 {data.get('emoji','')} **{稱號}**！暱稱已更新。", ephemeral=True)
 
-
-@tree.command(name='兌換身分組', description='依籌碼里程碑兌換伺服器身分組')
-async def cmd_role(interaction: discord.Interaction):
-    if not interaction.guild:
-        await interaction.response.send_message('此指令只能在伺服器中使用！', ephemeral=True)
-        return
-    chips = await get_chips(str(interaction.user.id))
-    earned_role = None
-    for threshold, rname in ROLE_MILESTONES:
-        if chips >= threshold:
-            earned_role = rname
-            break
-    if not earned_role:
-        need = ROLE_MILESTONES[-1][0]
-        await interaction.response.send_message(f'還沒達標！最低需要 **{need:,}** 籌碼。', ephemeral=True)
-        return
-
-    role = discord.utils.get(interaction.guild.roles, name=earned_role)
-    if not role:
-        try:
-            role = await interaction.guild.create_role(name=earned_role, reason='射龍門 Bot 自動建立')
-        except discord.Forbidden:
-            await interaction.response.send_message(
-                f'Bot 缺少「管理身分組」權限，請管理員手動建立名為「{earned_role}」的身分組。', ephemeral=True)
-            return
-    try:
-        await interaction.user.add_roles(role)
-        await interaction.response.send_message(f'✅ 已獲得身分組 **{earned_role}**！（你有 {chips:,} 籌碼）')
-    except discord.Forbidden:
-        await interaction.response.send_message('Bot 缺少「管理身分組」權限！', ephemeral=True)
 
 
 @tree.command(name='籌碼', description='查看目前籌碼')
