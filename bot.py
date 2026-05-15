@@ -234,7 +234,7 @@ class BetView(discord.ui.View):
         if v1 == v2:
             embed = discord.Embed(
                 title='🃏 射龍門 — 兩張牌一樣！',
-                description='選擇中間牌比邊牌**大**還是**小**\n（等於邊牌算射中龍門，輸 2 倍）',
+                description='選擇中間牌比邊牌**大**還是**小**\n（等於邊牌算射中龍門，輸 3 倍）',
                 color=discord.Color.gold()
             )
             embed.add_field(name='左牌', value=f'`{card_str(self.card1)}`', inline=True)
@@ -345,7 +345,7 @@ class TieChoiceView(discord.ui.View):
         border_val = v1
 
         if v3 == border_val:
-            loss = self.bet * 2
+            loss = self.bet * 3
             await add_chips(str(self.user_id), -loss)
             result = f'🎯 射中龍門！輸了 **{loss}** 籌碼'
             color = discord.Color.orange()
