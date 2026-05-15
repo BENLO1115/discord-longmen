@@ -228,8 +228,27 @@ class BetView(discord.ui.View):
         for item in self.children:
             item.disabled = True
 
+        v1, v2 = card_val(self.card1), card_val(self.card2)
+
+        # 兩張牌一樣 → 先選壓大/壓小
+        if v1 == v2:
+            embed = discord.Embed(
+                title='🃏 射龍門 — 兩張牌一樣！',
+                description='選擇中間牌比邊牌**大**還是**小**\n（等於邊牌算射中龍門，輸一半）',
+                color=discord.Color.gold()
+            )
+            embed.add_field(name='左牌', value=f'`{card_str(self.card1)}`', inline=True)
+            embed.add_field(name='中牌', value='`  ?  `', inline=True)
+            embed.add_field(name='右牌', value=f'`{card_str(self.card2)}`', inline=True)
+            embed.add_field(name='押注', value=f'**{bet:,}** 籌碼', inline=True)
+            await interaction.response.edit_message(
+                embed=embed,
+                view=TieChoiceView(self.user_id, bet, self.chips, self.card1, self.card2)
+            )
+            return
+
         card3 = draw_card()
-        v1, v2, v3 = card_val(self.card1), card_val(self.card2), card_val(card3)
+        v3 = card_val(card3)
         lo, hi = min(v1, v2), max(v1, v2)
 
         if v3 == lo or v3 == hi:
@@ -299,6 +318,76 @@ class BetView(discord.ui.View):
         active_games.pop(self.user_id, None)
 
 
+class TieChoiceView(discord.ui.View):
+    """兩張邊牌點數相同時，讓玩家選擇壓大或壓小。"""
+    def __init__(self, user_id: int, bet: int, chips: int, card1, card2):
+        super().__init__(timeout=60)
+        self.user_id = user_id
+        self.bet = bet
+        self.chips = chips
+        self.card1 = card1
+        self.card2 = card2
+        self.done = False
+
+    async def resolve(self, interaction: discord.Interaction, guess_big: bool):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message('這不是你的牌局！', ephemeral=True)
+            return
+        if self.done:
+            return
+        self.done = True
+        for item in self.children:
+            item.disabled = True
+
+        card3 = draw_card()
+        v1 = card_val(self.card1)
+        v3 = card_val(card3)
+        border_val = v1
+
+        if v3 == border_val:
+            loss = self.bet // 2
+            await add_chips(str(self.user_id), -loss)
+            result = f'🎯 射中龍門！輸了 **{loss}** 籌碼'
+            color = discord.Color.orange()
+            final = self.chips - loss
+        elif (guess_big and v3 > border_val) or (not guess_big and v3 < border_val):
+            await add_chips(str(self.user_id), self.bet)
+            side = '大' if guess_big else '小'
+            result = f'✅ 猜對了！是{side}！贏了 **{self.bet:,}** 籌碼'
+            color = discord.Color.green()
+            final = self.chips + self.bet
+        else:
+            await add_chips(str(self.user_id), -self.bet)
+            wrong = '大' if not guess_big else '小'
+            result = f'❌ 猜錯！是{wrong}！輸了 **{self.bet:,}** 籌碼'
+            color = discord.Color.red()
+            final = self.chips - self.bet
+
+        active_games.pop(self.user_id, None)
+
+        embed = discord.Embed(title='🃏 射龍門 — 結果', color=color)
+        embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
+        embed.add_field(name='左牌', value=f'`{card_str(self.card1)}`', inline=True)
+        embed.add_field(name='中牌', value=f'`{card_str(card3)}`', inline=True)
+        embed.add_field(name='右牌', value=f'`{card_str(self.card2)}`', inline=True)
+        embed.add_field(name='你壓', value='大' if guess_big else '小', inline=True)
+        embed.add_field(name='結果', value=result, inline=False)
+        embed.add_field(name='剩餘籌碼', value=f'**{final:,}** 點', inline=False)
+        await interaction.response.edit_message(content='🃏 遊戲結束！', embed=None, view=PlayAgainView(self.user_id))
+        await interaction.followup.send(embed=embed)
+
+    async def on_timeout(self):
+        active_games.pop(self.user_id, None)
+
+    @discord.ui.button(label='壓大（中間牌 > 邊牌）', style=discord.ButtonStyle.danger)
+    async def bet_big(self, interaction: discord.Interaction, button):
+        await self.resolve(interaction, True)
+
+    @discord.ui.button(label='壓小（中間牌 < 邊牌）', style=discord.ButtonStyle.primary)
+    async def bet_small(self, interaction: discord.Interaction, button):
+        await self.resolve(interaction, False)
+
+
 class PlayAgainView(discord.ui.View):
     def __init__(self, user_id: int):
         super().__init__(timeout=120)
@@ -327,7 +416,10 @@ class PlayAgainView(discord.ui.View):
         embed.add_field(name='左牌', value=f'`{card_str(c1)}`', inline=True)
         embed.add_field(name='中牌', value='`  ?  `', inline=True)
         embed.add_field(name='右牌', value=f'`{card_str(c2)}`', inline=True)
-        embed.add_field(name='可過牌數', value=f'{max(spread, 0)} 張', inline=True)
+        if v1 == v2:
+            embed.add_field(name='⚠️ 兩張牌一樣！', value='押注後選擇**壓大**或**壓小**', inline=False)
+        else:
+            embed.add_field(name='可過牌數', value=f'{max(spread, 0)} 張', inline=True)
         embed.add_field(name='你的籌碼', value=f'**{chips:,}** 點', inline=True)
         embed.set_footer(text='射中龍門（等於邊牌）只輸一半 ｜ 60 秒未押注自動取消')
         self.stop()
@@ -775,7 +867,10 @@ async def cmd_longmen(interaction: discord.Interaction):
     embed.add_field(name='左牌', value=f'`{card_str(c1)}`', inline=True)
     embed.add_field(name='中牌', value='`  ?  `', inline=True)
     embed.add_field(name='右牌', value=f'`{card_str(c2)}`', inline=True)
-    embed.add_field(name='可過牌數', value=f'{max(spread, 0)} 張', inline=True)
+    if v1 == v2:
+        embed.add_field(name='⚠️ 兩張牌一樣！', value='押注後選擇**壓大**或**壓小**', inline=False)
+    else:
+        embed.add_field(name='可過牌數', value=f'{max(spread, 0)} 張', inline=True)
     embed.add_field(name='你的籌碼', value=f'**{chips:,}** 點', inline=True)
     embed.set_footer(text='射中龍門（等於邊牌）只輸一半 ｜ 60 秒未押注自動取消')
     await interaction.response.send_message(embed=embed, view=BetView(uid, c1, c2, chips), ephemeral=True)
