@@ -560,11 +560,10 @@ class BlackjackBetView(discord.ui.View):
 
 
 class NiuView(discord.ui.View):
-    def __init__(self, user_id: int, chips: int, player: list):
+    def __init__(self, user_id: int, chips: int):
         super().__init__(timeout=60)
         self.user_id = user_id
         self.chips = chips
-        self.player = player
         self.done = False
         for label, amt in [('押 50',50),('押 100',100),('押 200',200),('押 300',300),('押 400',400)]:
             btn = discord.ui.Button(label=label, style=discord.ButtonStyle.primary, disabled=chips < amt)
@@ -584,10 +583,12 @@ class NiuView(discord.ui.View):
             self.done = True
             for item in self.children:
                 item.disabled = True
+
+            player = [draw_card() for _ in range(5)]
             dealer = [draw_card() for _ in range(5)]
-            p_sp = detect_niu_special(self.player)
+            p_sp = detect_niu_special(player)
             d_sp = detect_niu_special(dealer)
-            p_niu = calc_niu(self.player)
+            p_niu = calc_niu(player)
             d_niu = calc_niu(dealer)
 
             def hand_rank(sp, niu):
@@ -622,7 +623,7 @@ class NiuView(discord.ui.View):
             p_label = f"🎴 {p_sp[0]}" if p_sp else niu_name(p_niu)
             d_label = f"🎴 {d_sp[0]}" if d_sp else niu_name(d_niu)
             embed = discord.Embed(title='🀄 妞妞 — 結果', color=color)
-            embed.add_field(name=f'你的牌 — {p_label}', value=' '.join(f'`{card_str(c)}`' for c in self.player), inline=False)
+            embed.add_field(name=f'你的牌 — {p_label}', value=' '.join(f'`{card_str(c)}`' for c in player), inline=False)
             embed.add_field(name=f'莊家的牌 — {d_label}', value=' '.join(f'`{card_str(c)}`' for c in dealer), inline=False)
             embed.add_field(name='結果', value=result, inline=False)
             embed.add_field(name='剩餘籌碼', value=f'**{final:,}** 點', inline=False)
@@ -730,22 +731,20 @@ async def cmd_blackjack(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, view=BlackjackBetView(uid, chips, player, dealer))
 
 
-@tree.command(name='妞妞', description='妞妞！五張牌湊牛，牛牛 ×3 倍，鐵支 ×8 倍，同花順 ×5 倍！')
+@tree.command(name='妞妞', description='妞妞！先下注才能看牌，牛牛 ×3 倍，鐵支 ×8 倍，同花順 ×5 倍！')
 async def cmd_niu(interaction: discord.Interaction):
     uid = interaction.user.id
     chips = await get_chips(str(uid))
     if chips <= 0:
         await interaction.response.send_message('籌碼歸零！先用 `/簽到` 補充籌碼。', ephemeral=True)
         return
-    player = [draw_card() for _ in range(5)]
     embed = discord.Embed(
         title='🀄 妞妞',
-        description='你的五張牌出來了！選擇押注金額和莊家一決勝負！\n牛8/牛9 ×2 ｜ 牛牛 ×3 ｜ 同花順 ×5 ｜ 鐵支 ×8',
+        description='先下注，押完才能看牌！\n牛8/牛9 ×2 ｜ 牛牛 ×3 ｜ 同花順 ×5 ｜ 鐵支 ×8',
         color=discord.Color.dark_gold()
     )
-    embed.add_field(name='你的牌', value=' '.join(f'`{card_str(c)}`' for c in player), inline=False)
     embed.add_field(name='你的籌碼', value=f'**{chips:,}** 點', inline=True)
-    await interaction.response.send_message(embed=embed, view=NiuView(uid, chips, player))
+    await interaction.response.send_message(embed=embed, view=NiuView(uid, chips))
 
 
 @tree.command(name='轉帳', description='轉帳籌碼給其他玩家')
