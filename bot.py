@@ -277,8 +277,8 @@ class BetView(discord.ui.View):
         embed.add_field(name='右牌', value=f'`{card_str(self.card2)}`', inline=True)
         embed.add_field(name='結果', value=result, inline=False)
         embed.add_field(name='剩餘籌碼', value=f'**{final:,}** 點', inline=False)
-        await interaction.response.edit_message(content='🃏 遊戲結束！', embed=None, view=PlayAgainView(self.user_id))
-        await interaction.followup.send(embed=embed)
+        await interaction.response.edit_message(content='🃏 遊戲結束！', embed=None, view=discord.ui.View())
+        await interaction.followup.send(embed=embed, view=PublicPlayAgainView(self.user_id))
 
     @discord.ui.button(label='押 50',  style=discord.ButtonStyle.primary)
     async def bet_50(self, i, b):  await self.resolve(i, min(50, self.chips))
@@ -316,6 +316,42 @@ class BetView(discord.ui.View):
 
     async def on_timeout(self):
         active_games.pop(self.user_id, None)
+
+
+class PublicPlayAgainView(discord.ui.View):
+    """公開結果 embed 上的再來一局，點了開新的私密遊戲面板。"""
+    def __init__(self, user_id: int):
+        super().__init__(timeout=120)
+        self.user_id = user_id
+
+    @discord.ui.button(label='再來一局 🃏', style=discord.ButtonStyle.success)
+    async def play_again(self, interaction: discord.Interaction, button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message('這不是你的牌局！', ephemeral=True)
+            return
+        if self.user_id in active_games:
+            await interaction.response.send_message('你已有進行中的牌局！', ephemeral=True)
+            return
+        chips = await get_chips(str(self.user_id))
+        if chips <= 0:
+            await interaction.response.send_message('籌碼歸零！先用 `/簽到` 補充籌碼。', ephemeral=True)
+            return
+        c1, c2 = draw_card(), draw_card()
+        active_games[self.user_id] = (c1, c2)
+        v1, v2 = card_val(c1), card_val(c2)
+        spread = abs(v1 - v2) - 1
+        embed = discord.Embed(title='🃏 射龍門', description='猜猜中間那張牌是否落在兩張之間？', color=discord.Color.gold())
+        embed.add_field(name='左牌', value=f'`{card_str(c1)}`', inline=True)
+        embed.add_field(name='中牌', value='`  ?  `', inline=True)
+        embed.add_field(name='右牌', value=f'`{card_str(c2)}`', inline=True)
+        if v1 == v2:
+            embed.add_field(name='⚠️ 兩張牌一樣！', value='押注後選擇**壓大**或**壓小**', inline=False)
+        else:
+            embed.add_field(name='可過牌數', value=f'{max(spread, 0)} 張', inline=True)
+        embed.add_field(name='你的籌碼', value=f'**{chips:,}** 點', inline=True)
+        embed.set_footer(text='射中龍門（等於邊牌）輸 2 倍 ｜ 60 秒未押注自動取消')
+        self.stop()
+        await interaction.response.send_message(embed=embed, view=BetView(self.user_id, c1, c2, chips), ephemeral=True)
 
 
 class TieChoiceView(discord.ui.View):
@@ -373,8 +409,8 @@ class TieChoiceView(discord.ui.View):
         embed.add_field(name='你壓', value='大' if guess_big else '小', inline=True)
         embed.add_field(name='結果', value=result, inline=False)
         embed.add_field(name='剩餘籌碼', value=f'**{final:,}** 點', inline=False)
-        await interaction.response.edit_message(content='🃏 遊戲結束！', embed=None, view=PlayAgainView(self.user_id))
-        await interaction.followup.send(embed=embed)
+        await interaction.response.edit_message(content='🃏 遊戲結束！', embed=None, view=discord.ui.View())
+        await interaction.followup.send(embed=embed, view=PublicPlayAgainView(self.user_id))
 
     async def on_timeout(self):
         active_games.pop(self.user_id, None)
