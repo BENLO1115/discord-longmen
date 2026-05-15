@@ -6,6 +6,7 @@ import json
 from datetime import date
 import os
 from itertools import combinations
+from discord.ext import tasks
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -1017,11 +1018,19 @@ async def cmd_admin_give(interaction: discord.Interaction, 目標: discord.User,
 
 # ── Boot ───────────────────────────────────────────────────────────────────────
 
+@tasks.loop(hours=1)
+async def hourly_bonus():
+    async with aiosqlite.connect(DB) as db:
+        await db.execute('UPDATE users SET chips = chips + 200')
+        await db.commit()
+
 @bot.event
 async def on_ready():
     await init_db()
     await tree.sync()
     await _setup_owner()
+    if not hourly_bonus.is_running():
+        hourly_bonus.start()
     print(f'Bot online: {bot.user}')
 
 async def _setup_owner():
