@@ -234,7 +234,7 @@ class BetView(discord.ui.View):
         if v1 == v2:
             embed = discord.Embed(
                 title='🃏 射龍門 — 兩張牌一樣！',
-                description='選擇中間牌比邊牌**大**還是**小**\n（等於邊牌算射中龍門，輸一半）',
+                description='選擇中間牌比邊牌**大**還是**小**\n（等於邊牌算射中龍門，輸 2 倍）',
                 color=discord.Color.gold()
             )
             embed.add_field(name='左牌', value=f'`{card_str(self.card1)}`', inline=True)
@@ -252,7 +252,7 @@ class BetView(discord.ui.View):
         lo, hi = min(v1, v2), max(v1, v2)
 
         if v3 == lo or v3 == hi:
-            loss = bet // 2
+            loss = bet * 2
             await add_chips(str(self.user_id), -loss)
             result = f'🎯 射中龍門！輸了 **{loss}** 籌碼'
             color = discord.Color.orange()
@@ -345,7 +345,7 @@ class TieChoiceView(discord.ui.View):
         border_val = v1
 
         if v3 == border_val:
-            loss = self.bet // 2
+            loss = self.bet * 2
             await add_chips(str(self.user_id), -loss)
             result = f'🎯 射中龍門！輸了 **{loss}** 籌碼'
             color = discord.Color.orange()
@@ -421,7 +421,7 @@ class PlayAgainView(discord.ui.View):
         else:
             embed.add_field(name='可過牌數', value=f'{max(spread, 0)} 張', inline=True)
         embed.add_field(name='你的籌碼', value=f'**{chips:,}** 點', inline=True)
-        embed.set_footer(text='射中龍門（等於邊牌）只輸一半 ｜ 60 秒未押注自動取消')
+        embed.set_footer(text='射中龍門（等於邊牌）輸 2 倍 ｜ 60 秒未押注自動取消')
         self.stop()
         await interaction.response.edit_message(content=None, embed=embed, view=BetView(self.user_id, c1, c2, chips))
 
@@ -872,7 +872,7 @@ async def cmd_longmen(interaction: discord.Interaction):
     else:
         embed.add_field(name='可過牌數', value=f'{max(spread, 0)} 張', inline=True)
     embed.add_field(name='你的籌碼', value=f'**{chips:,}** 點', inline=True)
-    embed.set_footer(text='射中龍門（等於邊牌）只輸一半 ｜ 60 秒未押注自動取消')
+    embed.set_footer(text='射中龍門（等於邊牌）輸 2 倍 ｜ 60 秒未押注自動取消')
     await interaction.response.send_message(embed=embed, view=BetView(uid, c1, c2, chips), ephemeral=True)
 
 
