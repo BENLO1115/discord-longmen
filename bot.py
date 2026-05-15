@@ -111,6 +111,15 @@ async def update_title_role(member: discord.Member, new_title: str):
                 await member.add_roles(role, reason=f'裝備稱號：{new_title}')
     except discord.Forbidden:
         pass
+    # 同步更新暱稱顯示稱號文字
+    base = member.display_name
+    if '【' in base:
+        base = base[:base.index('【')].strip()
+    new_nick = f'{base} 【{new_title}】' if new_title else base
+    try:
+        await member.edit(nick=new_nick)
+    except discord.Forbidden:
+        pass
 
 def detect_niu_special(cards):
     """Returns ('鐵支',8) / ('同花順',5) / None"""
@@ -934,8 +943,14 @@ async def cmd_admin_give(interaction: discord.Interaction, 目標: discord.User,
 async def on_ready():
     await init_db()
     await tree.sync()
+    for guild in bot.guilds:
+        await _init_guild_roles(guild)
     await _setup_owner()
     print(f'Bot online: {bot.user}')
+
+async def _init_guild_roles(guild: discord.Guild):
+    for name in SHOP_ITEMS:
+        await get_or_create_title_role(guild, name)
 
 async def _setup_owner():
     owned = await get_owned_items(OWNER_ID)
