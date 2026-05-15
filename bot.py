@@ -251,12 +251,14 @@ class BetView(discord.ui.View):
         active_games.pop(self.user_id, None)
 
         embed = discord.Embed(title='🃏 射龍門 — 結果', color=color)
+        embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
         embed.add_field(name='左牌', value=f'`{card_str(self.card1)}`', inline=True)
         embed.add_field(name='中牌', value=f'`{card_str(card3)}`', inline=True)
         embed.add_field(name='右牌', value=f'`{card_str(self.card2)}`', inline=True)
         embed.add_field(name='結果', value=result, inline=False)
         embed.add_field(name='剩餘籌碼', value=f'**{final:,}** 點', inline=False)
-        await interaction.response.edit_message(embed=embed, view=PlayAgainView(self.user_id))
+        await interaction.response.edit_message(content='🃏 遊戲結束！', embed=None, view=PlayAgainView(self.user_id))
+        await interaction.followup.send(embed=embed)
 
     @discord.ui.button(label='押 50',  style=discord.ButtonStyle.primary)
     async def bet_50(self, i, b):  await self.resolve(i, min(50, self.chips))
@@ -362,12 +364,14 @@ class GuessView(discord.ui.View):
             final = self.chips - self.bet
 
         embed = discord.Embed(title='🎴 猜大小 — 結果', color=color)
+        embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
         embed.add_field(name='翻出的牌', value=f'`{card_str(card)}`', inline=True)
         embed.add_field(name='大小', value='大 (8~K)' if is_big else '小 (A~7)', inline=True)
         embed.add_field(name='你猜', value='大' if guess_big else '小', inline=True)
         embed.add_field(name='結果', value=result, inline=False)
         embed.add_field(name='剩餘籌碼', value=f'**{final:,}** 點', inline=False)
-        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.response.edit_message(content='🎴 遊戲結束！', embed=None, view=self)
+        await interaction.followup.send(embed=embed)
 
     @discord.ui.button(label='大 (8~K)', style=discord.ButtonStyle.danger)
     async def guess_big(self, i, b):   await self.resolve(i, True)
@@ -420,6 +424,44 @@ class ShopView(discord.ui.View):
             await interaction.response.edit_message(embed=embed, view=self)
         return callback
 
+class EquipView(discord.ui.View):
+    def __init__(self, user_id: int, uid: str, owned: list, current: str):
+        super().__init__(timeout=60)
+        self.user_id = user_id
+        self.uid = uid
+        options = [
+            discord.SelectOption(
+                label=name,
+                emoji=SHOP_ITEMS.get(name, {}).get('emoji', '🏷'),
+                description=SHOP_ITEMS.get(name, {}).get('desc', ''),
+                default=(name == current)
+            )
+            for name in owned
+        ]
+        select = discord.ui.Select(placeholder='選擇要裝備的稱號...', options=options)
+        select.callback = self._on_select
+        self.add_item(select)
+        self.select = select
+
+    async def _on_select(self, interaction: discord.Interaction):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message('這不是你的選單！', ephemeral=True)
+            return
+        chosen = self.select.values[0]
+        await set_title(self.uid, chosen)
+        data = SHOP_ITEMS.get(chosen, {})
+        if interaction.guild:
+            member = interaction.guild.get_member(self.user_id)
+            if member:
+                await apply_title_nick(member, chosen)
+        for item in self.children:
+            item.disabled = True
+        await interaction.response.edit_message(
+            content=f"✅ 已裝備 {data.get('emoji','')} **{chosen}**！",
+            view=self
+        )
+
+
 class BlackjackPlayView(discord.ui.View):
     def __init__(self, user_id: int, bet: int, chips: int, player: list, dealer: list):
         super().__init__(timeout=60)
@@ -462,11 +504,13 @@ class BlackjackPlayView(discord.ui.View):
         await add_chips(str(self.user_id), delta)
         final = self.chips + delta
         embed = discord.Embed(title='🃏 21點 — 結果', color=color)
+        embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
         embed.add_field(name=f'你的牌 ({pv})', value=' '.join(f'`{card_str(c)}`' for c in self.player), inline=False)
         embed.add_field(name=f'莊家的牌 ({dv})', value=' '.join(f'`{card_str(c)}`' for c in self.dealer), inline=False)
         embed.add_field(name='結果', value=result, inline=False)
         embed.add_field(name='剩餘籌碼', value=f'**{final:,}** 點', inline=False)
-        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.response.edit_message(content='🃏 遊戲結束！', embed=None, view=self)
+        await interaction.followup.send(embed=embed)
 
     @discord.ui.button(label='要牌 Hit', style=discord.ButtonStyle.primary)
     async def hit(self, interaction: discord.Interaction, button):
@@ -589,11 +633,13 @@ class NiuView(discord.ui.View):
             p_label = f"🎴 {p_sp[0]}" if p_sp else niu_name(p_niu)
             d_label = f"🎴 {d_sp[0]}" if d_sp else niu_name(d_niu)
             embed = discord.Embed(title='🀄 妞妞 — 結果', color=color)
+            embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
             embed.add_field(name=f'你的牌 — {p_label}', value=' '.join(f'`{card_str(c)}`' for c in player), inline=False)
             embed.add_field(name=f'莊家的牌 — {d_label}', value=' '.join(f'`{card_str(c)}`' for c in dealer), inline=False)
             embed.add_field(name='結果', value=result, inline=False)
             embed.add_field(name='剩餘籌碼', value=f'**{final:,}** 點', inline=False)
-            await interaction.response.edit_message(embed=embed, view=self)
+            await interaction.response.edit_message(content='🀄 遊戲結束！', embed=None, view=self)
+            await interaction.followup.send(embed=embed)
         return callback
 
 
@@ -623,7 +669,7 @@ async def cmd_longmen(interaction: discord.Interaction):
     embed.add_field(name='可過牌數', value=f'{max(spread, 0)} 張', inline=True)
     embed.add_field(name='你的籌碼', value=f'**{chips:,}** 點', inline=True)
     embed.set_footer(text='射中龍門（等於邊牌）只輸一半 ｜ 60 秒未押注自動取消')
-    await interaction.response.send_message(embed=embed, view=BetView(uid, c1, c2, chips))
+    await interaction.response.send_message(embed=embed, view=BetView(uid, c1, c2, chips), ephemeral=True)
 
 
 @tree.command(name='猜大小', description='猜牌面大小（8~K為大，A~7為小），贏賠 1:1')
@@ -644,7 +690,7 @@ async def cmd_guess(interaction: discord.Interaction, 下注: int):
         color=discord.Color.blue()
     )
     embed.add_field(name='你的籌碼', value=f'**{chips:,}** 點')
-    await interaction.response.send_message(embed=embed, view=GuessView(uid, bet, chips))
+    await interaction.response.send_message(embed=embed, view=GuessView(uid, bet, chips), ephemeral=True)
 
 
 @tree.command(name='拉霸', description='拉霸機！三個相同符號贏大獎，JACKPOT 賠 50 倍')
@@ -694,7 +740,7 @@ async def cmd_blackjack(interaction: discord.Interaction):
     embed.add_field(name='莊家的牌', value=f'`{card_str(dealer[0])}`  `  ?  `', inline=False)
     embed.add_field(name='你的籌碼', value=f'**{chips:,}** 點', inline=True)
     embed.set_footer(text='Blackjack（兩張牌21點）賠 1.5 倍 ｜ 莊家 18 點停牌')
-    await interaction.response.send_message(embed=embed, view=BlackjackBetView(uid, chips, player, dealer))
+    await interaction.response.send_message(embed=embed, view=BlackjackBetView(uid, chips, player, dealer), ephemeral=True)
 
 
 @tree.command(name='妞妞', description='妞妞！先下注才能看牌，牛牛 ×3 倍，鐵支 ×8 倍，同花順 ×5 倍！')
@@ -710,7 +756,7 @@ async def cmd_niu(interaction: discord.Interaction):
         color=discord.Color.dark_gold()
     )
     embed.add_field(name='你的籌碼', value=f'**{chips:,}** 點', inline=True)
-    await interaction.response.send_message(embed=embed, view=NiuView(uid, chips))
+    await interaction.response.send_message(embed=embed, view=NiuView(uid, chips), ephemeral=True)
 
 
 @tree.command(name='轉帳', description='轉帳籌碼給其他玩家')
@@ -778,38 +824,7 @@ async def cmd_equip(interaction: discord.Interaction):
         await interaction.response.send_message('你還沒有任何稱號！去 `/商店` 購買吧。', ephemeral=True)
         return
     current = await get_title(uid)
-
-    options = [
-        discord.SelectOption(
-            label=name,
-            emoji=SHOP_ITEMS.get(name, {}).get('emoji', '🏷'),
-            description=SHOP_ITEMS.get(name, {}).get('desc', ''),
-            default=(name == current)
-        )
-        for name in owned
-    ]
-
-    class EquipSelect(discord.ui.Select):
-        def __init__(self_s):
-            super().__init__(placeholder='選擇要裝備的稱號...', options=options, min_values=1, max_values=1)
-
-        async def callback(self_s, inter: discord.Interaction):
-            if inter.user.id != interaction.user.id:
-                await inter.response.send_message('這不是你的選單！', ephemeral=True)
-                return
-            chosen = self_s.values[0]
-            await set_title(uid, chosen)
-            data = SHOP_ITEMS.get(chosen, {})
-            if inter.guild:
-                member = inter.guild.get_member(inter.user.id)
-                if member:
-                    await apply_title_nick(member, chosen)
-            for item in self_s.view.children:
-                item.disabled = True
-            await inter.response.edit_message(content=f"✅ 已裝備 {data.get('emoji','')} **{chosen}**！", view=self_s.view)
-
-    view = discord.ui.View(timeout=60)
-    view.add_item(EquipSelect())
+    view = EquipView(interaction.user.id, uid, owned, current)
     await interaction.response.send_message('選擇要裝備的稱號：', view=view, ephemeral=True)
 
 
