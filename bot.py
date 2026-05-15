@@ -353,6 +353,13 @@ class ShopView(discord.ui.View):
             await add_chips(str(self.user_id), -data['price'])
             await add_owned_item(str(self.user_id), name)
             await set_title(str(self.user_id), name)
+            base = interaction.user.display_name
+            if '【' in base:
+                base = base[:base.index('【')].strip()
+            try:
+                await interaction.user.edit(nick=f'{base} 【{name}】')
+            except discord.Forbidden:
+                pass
             for item in self.children:
                 item.disabled = True
             embed = discord.Embed(
@@ -512,7 +519,14 @@ async def cmd_equip(interaction: discord.Interaction, 稱號: str):
         return
     await set_title(uid, 稱號)
     data = SHOP_ITEMS.get(稱號, {})
-    await interaction.response.send_message(f"已裝備 {data.get('emoji','')} **{稱號}**！", ephemeral=True)
+    base = interaction.user.display_name
+    if '【' in base:
+        base = base[:base.index('【')].strip()
+    try:
+        await interaction.user.edit(nick=f'{base} 【{稱號}】')
+    except discord.Forbidden:
+        pass
+    await interaction.response.send_message(f"已裝備 {data.get('emoji','')} **{稱號}**！暱稱已更新。", ephemeral=True)
 
 
 @tree.command(name='兌換身分組', description='依籌碼里程碑兌換伺服器身分組')
