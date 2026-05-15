@@ -436,34 +436,35 @@ class EquipView(discord.ui.View):
         options = [
             discord.SelectOption(
                 label=name,
-                emoji=SHOP_ITEMS.get(name, {}).get('emoji', '🏷'),
+                emoji=SHOP_ITEMS.get(name, {}).get('emoji'),
                 description=SHOP_ITEMS.get(name, {}).get('desc', ''),
                 default=(name == current)
             )
             for name in owned
         ]
-        select = discord.ui.Select(placeholder='選擇要裝備的稱號...', options=options)
-        select.callback = self._on_select
-        self.add_item(select)
-        self.select = select
+        sel = discord.ui.Select(placeholder='選擇要裝備的稱號...', options=options)
+        sel.callback = self._make_callback(sel)
+        self.add_item(sel)
 
-    async def _on_select(self, interaction: discord.Interaction):
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message('這不是你的選單！', ephemeral=True)
-            return
-        chosen = self.select.values[0]
-        await set_title(self.uid, chosen)
-        data = SHOP_ITEMS.get(chosen, {})
-        if interaction.guild:
-            member = interaction.guild.get_member(self.user_id)
-            if member:
-                await apply_title_nick(member, chosen)
-        for item in self.children:
-            item.disabled = True
-        await interaction.response.edit_message(
-            content=f"✅ 已裝備 {data.get('emoji','')} **{chosen}**！",
-            view=self
-        )
+    def _make_callback(self, sel):
+        async def callback(interaction: discord.Interaction):
+            if interaction.user.id != self.user_id:
+                await interaction.response.send_message('這不是你的選單！', ephemeral=True)
+                return
+            chosen = sel.values[0]
+            await set_title(self.uid, chosen)
+            data = SHOP_ITEMS.get(chosen, {})
+            if interaction.guild:
+                member = interaction.guild.get_member(self.user_id)
+                if member:
+                    await apply_title_nick(member, chosen)
+            for item in self.children:
+                item.disabled = True
+            await interaction.response.edit_message(
+                content=f"✅ 已裝備 {data.get('emoji','')} **{chosen}**！",
+                view=self
+            )
+        return callback
 
 
 class BlackjackPlayView(discord.ui.View):
