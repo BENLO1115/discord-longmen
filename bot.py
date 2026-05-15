@@ -275,6 +275,9 @@ class BetView(discord.ui.View):
     @discord.ui.button(label='押 400', style=discord.ButtonStyle.primary)
     async def bet_400(self, i, b): await self.resolve(i, min(400, self.chips))
 
+    @discord.ui.button(label='押 500', style=discord.ButtonStyle.primary)
+    async def bet_500(self, i, b): await self.resolve(i, min(500, self.chips))
+
     @discord.ui.button(label='🔥 ALL IN', style=discord.ButtonStyle.danger)
     async def bet_allin(self, i, b): await self.resolve(i, self.chips)
 
@@ -370,7 +373,7 @@ class GuessView(discord.ui.View):
         embed.add_field(name='你猜', value='大' if guess_big else '小', inline=True)
         embed.add_field(name='結果', value=result, inline=False)
         embed.add_field(name='剩餘籌碼', value=f'**{final:,}** 點', inline=False)
-        await interaction.response.edit_message(content='🎴 遊戲結束！', embed=None, view=self)
+        await interaction.response.edit_message(content='🎴 遊戲結束！', embed=None, view=GuessRestartView(self.user_id))
         await interaction.followup.send(embed=embed)
 
     @discord.ui.button(label='大 (8~K)', style=discord.ButtonStyle.danger)
@@ -509,7 +512,7 @@ class BlackjackPlayView(discord.ui.View):
         embed.add_field(name=f'莊家的牌 ({dv})', value=' '.join(f'`{card_str(c)}`' for c in self.dealer), inline=False)
         embed.add_field(name='結果', value=result, inline=False)
         embed.add_field(name='剩餘籌碼', value=f'**{final:,}** 點', inline=False)
-        await interaction.response.edit_message(content='🃏 遊戲結束！', embed=None, view=self)
+        await interaction.response.edit_message(content='🃏 遊戲結束！', embed=None, view=BlackjackRestartView(self.user_id))
         await interaction.followup.send(embed=embed)
 
     @discord.ui.button(label='要牌 Hit', style=discord.ButtonStyle.primary)
@@ -546,7 +549,7 @@ class BlackjackBetView(discord.ui.View):
         self.player = player
         self.dealer = dealer
         self.done = False
-        for label, amt in [('押 50',50),('押 100',100),('押 200',200),('押 300',300),('押 400',400)]:
+        for label, amt in [('押 50',50),('押 100',100),('押 200',200),('押 300',300),('押 400',400),('押 500',500)]:
             btn = discord.ui.Button(label=label, style=discord.ButtonStyle.primary, disabled=chips < amt)
             btn.callback = self._make_bet(min(amt, chips))
             self.add_item(btn)
@@ -575,7 +578,7 @@ class NiuView(discord.ui.View):
         self.user_id = user_id
         self.chips = chips
         self.done = False
-        for label, amt in [('押 50',50),('押 100',100),('押 200',200),('押 300',300),('押 400',400)]:
+        for label, amt in [('押 50',50),('押 100',100),('押 200',200),('押 300',300),('押 400',400),('押 500',500)]:
             btn = discord.ui.Button(label=label, style=discord.ButtonStyle.primary, disabled=chips < amt)
             btn.callback = self._make_bet(min(amt, chips))
             self.add_item(btn)
@@ -638,9 +641,113 @@ class NiuView(discord.ui.View):
             embed.add_field(name=f'莊家的牌 — {d_label}', value=' '.join(f'`{card_str(c)}`' for c in dealer), inline=False)
             embed.add_field(name='結果', value=result, inline=False)
             embed.add_field(name='剩餘籌碼', value=f'**{final:,}** 點', inline=False)
-            await interaction.response.edit_message(content='🀄 遊戲結束！', embed=None, view=self)
+            await interaction.response.edit_message(content='🀄 遊戲結束！', embed=None, view=NiuRestartView(self.user_id))
             await interaction.followup.send(embed=embed)
         return callback
+
+
+class GuessBetView(discord.ui.View):
+    def __init__(self, user_id: int, chips: int):
+        super().__init__(timeout=60)
+        self.user_id = user_id
+        self.chips = chips
+        self.done = False
+        for label, amt in [('押 50',50),('押 100',100),('押 200',200),('押 300',300),('押 400',400),('押 500',500)]:
+            btn = discord.ui.Button(label=label, style=discord.ButtonStyle.primary, disabled=chips < amt)
+            btn.callback = self._make_bet(min(amt, chips))
+            self.add_item(btn)
+        allin = discord.ui.Button(label='🔥 ALL IN', style=discord.ButtonStyle.danger)
+        allin.callback = self._make_bet(chips)
+        self.add_item(allin)
+
+    def _make_bet(self, amount):
+        async def callback(interaction: discord.Interaction):
+            if interaction.user.id != self.user_id:
+                await interaction.response.send_message('這不是你的牌局！', ephemeral=True)
+                return
+            if self.done:
+                return
+            self.done = True
+            for item in self.children:
+                item.disabled = True
+            embed = discord.Embed(
+                title='🎴 猜大小',
+                description=f'押注 **{amount:,}** 籌碼，牌面是大還是小？\n大 = 8 ~ K　｜　小 = A ~ 7',
+                color=discord.Color.blue()
+            )
+            embed.add_field(name='你的籌碼', value=f'**{self.chips:,}** 點')
+            await interaction.response.edit_message(content=None, embed=embed, view=GuessView(self.user_id, amount, self.chips))
+        return callback
+
+
+class GuessRestartView(discord.ui.View):
+    def __init__(self, user_id: int):
+        super().__init__(timeout=120)
+        self.user_id = user_id
+
+    @discord.ui.button(label='再來一局 🎴', style=discord.ButtonStyle.success)
+    async def play_again(self, interaction: discord.Interaction, button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message('這不是你的！', ephemeral=True)
+            return
+        chips = await get_chips(str(self.user_id))
+        if chips <= 0:
+            await interaction.response.send_message('籌碼歸零！先用 `/簽到` 補充。', ephemeral=True)
+            return
+        embed = discord.Embed(title='🎴 猜大小', description='押注後猜大小，贏賠 1:1\n大 = 8~K　｜　小 = A~7', color=discord.Color.blue())
+        embed.add_field(name='你的籌碼', value=f'**{chips:,}** 點')
+        self.stop()
+        await interaction.response.edit_message(content=None, embed=embed, view=GuessBetView(self.user_id, chips))
+
+
+class BlackjackRestartView(discord.ui.View):
+    def __init__(self, user_id: int):
+        super().__init__(timeout=120)
+        self.user_id = user_id
+
+    @discord.ui.button(label='再來一局 🃏', style=discord.ButtonStyle.success)
+    async def play_again(self, interaction: discord.Interaction, button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message('這不是你的！', ephemeral=True)
+            return
+        chips = await get_chips(str(self.user_id))
+        if chips <= 0:
+            await interaction.response.send_message('籌碼歸零！先用 `/簽到` 補充。', ephemeral=True)
+            return
+        player = [draw_card(), draw_card()]
+        dealer = [draw_card(), draw_card()]
+        pv = bj_total(player)
+        embed = discord.Embed(title='🃏 21點', color=discord.Color.dark_green())
+        embed.add_field(name=f'你的牌 ({pv})', value=' '.join(f'`{card_str(c)}`' for c in player), inline=False)
+        embed.add_field(name='莊家的牌', value=f'`{card_str(dealer[0])}`  `  ?  `', inline=False)
+        embed.add_field(name='你的籌碼', value=f'**{chips:,}** 點', inline=True)
+        embed.set_footer(text='Blackjack（兩張牌21點）賠 1.5 倍 ｜ 莊家 18 點停牌')
+        self.stop()
+        await interaction.response.edit_message(content=None, embed=embed, view=BlackjackBetView(self.user_id, chips, player, dealer))
+
+
+class NiuRestartView(discord.ui.View):
+    def __init__(self, user_id: int):
+        super().__init__(timeout=120)
+        self.user_id = user_id
+
+    @discord.ui.button(label='再來一局 🀄', style=discord.ButtonStyle.success)
+    async def play_again(self, interaction: discord.Interaction, button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message('這不是你的！', ephemeral=True)
+            return
+        chips = await get_chips(str(self.user_id))
+        if chips <= 0:
+            await interaction.response.send_message('籌碼歸零！先用 `/簽到` 補充。', ephemeral=True)
+            return
+        embed = discord.Embed(
+            title='🀄 妞妞',
+            description='先下注，押完才能看牌！\n牛8/牛9 ×2 ｜ 牛牛 ×3 ｜ 同花順 ×5 ｜ 鐵支 ×8',
+            color=discord.Color.dark_gold()
+        )
+        embed.add_field(name='你的籌碼', value=f'**{chips:,}** 點', inline=True)
+        self.stop()
+        await interaction.response.edit_message(content=None, embed=embed, view=NiuView(self.user_id, chips))
 
 
 # ── Commands ───────────────────────────────────────────────────────────────────
@@ -673,24 +780,15 @@ async def cmd_longmen(interaction: discord.Interaction):
 
 
 @tree.command(name='猜大小', description='猜牌面大小（8~K為大，A~7為小），贏賠 1:1')
-@app_commands.describe(下注='押注的籌碼數量')
-async def cmd_guess(interaction: discord.Interaction, 下注: int):
+async def cmd_guess(interaction: discord.Interaction):
     uid = interaction.user.id
-    if 下注 <= 0:
-        await interaction.response.send_message('下注金額必須大於 0！', ephemeral=True)
-        return
     chips = await get_chips(str(uid))
     if chips <= 0:
         await interaction.response.send_message('籌碼歸零！先用 `/簽到` 補充籌碼。', ephemeral=True)
         return
-    bet = min(下注, chips)
-    embed = discord.Embed(
-        title='🎴 猜大小',
-        description=f'押注 **{bet:,}** 籌碼，牌面是大還是小？\n大 = 8 ~ K　｜　小 = A ~ 7',
-        color=discord.Color.blue()
-    )
+    embed = discord.Embed(title='🎴 猜大小', description='押注後猜大小，贏賠 1:1\n大 = 8~K　｜　小 = A~7', color=discord.Color.blue())
     embed.add_field(name='你的籌碼', value=f'**{chips:,}** 點')
-    await interaction.response.send_message(embed=embed, view=GuessView(uid, bet, chips), ephemeral=True)
+    await interaction.response.send_message(embed=embed, view=GuessBetView(uid, chips), ephemeral=True)
 
 
 @tree.command(name='拉霸', description='拉霸機！三個相同符號贏大獎，JACKPOT 賠 50 倍')
