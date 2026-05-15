@@ -765,24 +765,50 @@ async def cmd_myitems(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
-@tree.command(name='裝備稱號', description='切換顯示的稱號')
-@app_commands.describe(稱號='要裝備的稱號名稱')
-async def cmd_equip(interaction: discord.Interaction, 稱號: str):
+@tree.command(name='裝備稱號', description='從擁有的稱號中選擇裝備')
+async def cmd_equip(interaction: discord.Interaction):
     uid = str(interaction.user.id)
     owned = await get_owned_items(uid)
-    if 稱號 not in owned:
-        await interaction.response.send_message(f'你沒有「{稱號}」這個稱號！', ephemeral=True)
+    if not owned:
+        await interaction.response.send_message('你還沒有任何稱號！去 `/商店` 購買吧。', ephemeral=True)
         return
-    await set_title(uid, 稱號)
-    data = SHOP_ITEMS.get(稱號, {})
-    base = interaction.user.display_name
-    if '【' in base:
-        base = base[:base.index('【')].strip()
-    try:
-        await interaction.user.edit(nick=f'{base} 【{稱號}】')
-    except discord.Forbidden:
-        pass
-    await interaction.response.send_message(f"已裝備 {data.get('emoji','')} **{稱號}**！暱稱已更新。", ephemeral=True)
+    current = await get_title(uid)
+
+    options = [
+        discord.SelectOption(
+            label=name,
+            emoji=SHOP_ITEMS.get(name, {}).get('emoji', '🏷'),
+            description=SHOP_ITEMS.get(name, {}).get('desc', ''),
+            default=(name == current)
+        )
+        for name in owned
+    ]
+
+    class EquipSelect(discord.ui.Select):
+        def __init__(self_s):
+            super().__init__(placeholder='選擇要裝備的稱號...', options=options, min_values=1, max_values=1)
+
+        async def callback(self_s, inter: discord.Interaction):
+            if inter.user.id != interaction.user.id:
+                await inter.response.send_message('這不是你的選單！', ephemeral=True)
+                return
+            chosen = self_s.values[0]
+            await set_title(uid, chosen)
+            data = SHOP_ITEMS.get(chosen, {})
+            base = inter.user.display_name
+            if '【' in base:
+                base = base[:base.index('【')].strip()
+            try:
+                await inter.user.edit(nick=f'{base} 【{chosen}】')
+            except discord.Forbidden:
+                pass
+            for item in self_s.view.children:
+                item.disabled = True
+            await inter.response.edit_message(content=f"✅ 已裝備 {data.get('emoji','')} **{chosen}**！", view=self_s.view)
+
+    view = discord.ui.View(timeout=60)
+    view.add_item(EquipSelect())
+    await interaction.response.send_message('選擇要裝備的稱號：', view=view, ephemeral=True)
 
 
 
