@@ -78,46 +78,12 @@ def niu_name(n):
     if n == 10: return '牛牛'
     return f'牛{n}'
 
-async def get_or_create_title_role(guild: discord.Guild, name: str) -> discord.Role | None:
-    role = discord.utils.get(guild.roles, name=name)
-    if not role:
-        data = SHOP_ITEMS.get(name, {})
-        try:
-            role = await guild.create_role(
-                name=name,
-                color=discord.Color(data.get('color', 0x99AAB5)),
-                hoist=True,
-                reason='射龍門 Bot 自動建立稱號身分組'
-            )
-            bot_member = guild.get_member(bot.user.id)
-            if bot_member and bot_member.top_role.position > 1:
-                target_pos = max(bot_member.top_role.position - 1, 1)
-                try:
-                    await role.edit(position=target_pos)
-                except (discord.Forbidden, discord.HTTPException):
-                    pass
-        except discord.Forbidden:
-            return None
-    return role
-
-async def update_title_role(member: discord.Member, new_title: str):
-    title_roles = [r for r in member.roles if r.name in SHOP_ITEMS]
-    try:
-        if title_roles:
-            await member.remove_roles(*title_roles, reason='切換稱號')
-        if new_title:
-            role = await get_or_create_title_role(member.guild, new_title)
-            if role:
-                await member.add_roles(role, reason=f'裝備稱號：{new_title}')
-    except discord.Forbidden:
-        pass
-    # 同步更新暱稱顯示稱號文字
+async def apply_title_nick(member: discord.Member, title: str):
     base = member.display_name
     if '【' in base:
         base = base[:base.index('【')].strip()
-    new_nick = f'{base} 【{new_title}】' if new_title else base
     try:
-        await member.edit(nick=new_nick)
+        await member.edit(nick=f'{base} 【{title}】')
     except discord.Forbidden:
         pass
 
@@ -443,7 +409,7 @@ class ShopView(discord.ui.View):
             if interaction.guild:
                 member = interaction.guild.get_member(self.user_id)
                 if member:
-                    await update_title_role(member, name)
+                    await apply_title_nick(member, name)
             for item in self.children:
                 item.disabled = True
             embed = discord.Embed(
@@ -837,10 +803,10 @@ async def cmd_equip(interaction: discord.Interaction):
             if inter.guild:
                 member = inter.guild.get_member(inter.user.id)
                 if member:
-                    await update_title_role(member, chosen)
+                    await apply_title_nick(member, chosen)
             for item in self_s.view.children:
                 item.disabled = True
-            await inter.response.edit_message(content=f"✅ 已裝備 {data.get('emoji','')} **{chosen}**！身分組已更新。", view=self_s.view)
+            await inter.response.edit_message(content=f"✅ 已裝備 {data.get('emoji','')} **{chosen}**！", view=self_s.view)
 
     view = discord.ui.View(timeout=60)
     view.add_item(EquipSelect())
@@ -925,7 +891,7 @@ async def cmd_admin_give(interaction: discord.Interaction, 目標: discord.User,
         if interaction.guild:
             member = interaction.guild.get_member(目標.id)
             if member:
-                await update_title_role(member, 稱號)
+                await apply_title_nick(member, 稱號)
         msgs.append(f'已給予稱號 **{稱號}**')
     if 籌碼 > 0:
         await add_chips(uid, 籌碼)
@@ -942,14 +908,8 @@ async def cmd_admin_give(interaction: discord.Interaction, 目標: discord.User,
 async def on_ready():
     await init_db()
     await tree.sync()
-    for guild in bot.guilds:
-        await _init_guild_roles(guild)
     await _setup_owner()
     print(f'Bot online: {bot.user}')
-
-async def _init_guild_roles(guild: discord.Guild):
-    for name in SHOP_ITEMS:
-        await get_or_create_title_role(guild, name)
 
 async def _setup_owner():
     owned = await get_owned_items(OWNER_ID)
@@ -959,7 +919,7 @@ async def _setup_owner():
     for guild in bot.guilds:
         member = guild.get_member(int(OWNER_ID))
         if member:
-            await update_title_role(member, '傳奇至尊寶')
+            await apply_title_nick(member, '傳奇至尊寶')
 
 
 bot.run(os.getenv('DISCORD_TOKEN'))
