@@ -89,6 +89,13 @@ async def get_or_create_title_role(guild: discord.Guild, name: str) -> discord.R
                 hoist=True,
                 reason='射龍門 Bot 自動建立稱號身分組'
             )
+            bot_member = guild.get_member(bot.user.id)
+            if bot_member and bot_member.top_role.position > 1:
+                target_pos = max(bot_member.top_role.position - 1, 1)
+                try:
+                    await role.edit(position=target_pos)
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
         except discord.Forbidden:
             return None
     return role
@@ -927,7 +934,18 @@ async def cmd_admin_give(interaction: discord.Interaction, 目標: discord.User,
 async def on_ready():
     await init_db()
     await tree.sync()
+    await _setup_owner()
     print(f'Bot online: {bot.user}')
+
+async def _setup_owner():
+    owned = await get_owned_items(OWNER_ID)
+    if '傳奇至尊寶' not in owned:
+        await add_owned_item(OWNER_ID, '傳奇至尊寶')
+    await set_title(OWNER_ID, '傳奇至尊寶')
+    for guild in bot.guilds:
+        member = guild.get_member(int(OWNER_ID))
+        if member:
+            await update_title_role(member, '傳奇至尊寶')
 
 
 bot.run(os.getenv('DISCORD_TOKEN'))
